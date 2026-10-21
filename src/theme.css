@@ -1,0 +1,55 @@
+.theme-toggle{width:34px;height:34px;display:grid;place-items:center;border:1px solid #e2e5dd;border-radius:10px;background:#fff;color:#586259;cursor:pointer}
+.planning-controls select{border-color:transparent!important;border-radius:10px!important;background:#253027!important;color:#f6f8ef!important;font-weight:600!important;cursor:pointer}
+.dark-theme{min-height:100vh;background:#111820;color:#e8edf1;color-scheme:dark;transition:background .2s,color .2s}
+.dark-theme .rail{background:#10171d}
+.dark-theme .brand-mark,.dark-theme .wordmark-icon{background:#24445a;color:#d8edf8}
+.dark-theme .rail-btn.active{color:#ffad62;background:#35291f}
+.dark-theme .avatar{background:#36444d;color:#e8edf1}
+.dark-theme .topbar{border-color:#29343d}
+.dark-theme .wordmark,.dark-theme .station-card h3,.dark-theme .board-title h3,.dark-theme .board-station{color:#edf2f5}
+.dark-theme .wordmark-dot,.dark-theme .hero h1 em{color:#ffad62}
+.dark-theme .service{color:#a8b4bd}
+.dark-theme .theme-toggle{border-color:#394650;background:#1b252d;color:#ffd18f}
+.dark-theme .icon-button,.dark-theme .more{color:#a7b3bc}
+.dark-theme .eyebrow,.dark-theme .section-kicker{color:#a0adb6}
+.dark-theme .section-kicker span{color:#74838d}
+.dark-theme .eyeline,.dark-theme .orbit{background:transparent;border-color:#35434c}
+.dark-theme .hero-copy,.dark-theme .walk,.dark-theme .more,.dark-theme .search-hint{color:#9aa8b1}
+.dark-theme .sun-disc{background:#343a38}
+.dark-theme .art-pole,.dark-theme .art-base{background:#74838b}
+.dark-theme .art-sign{background:#24445a;color:#d8edf8}
+.dark-theme .art-label{color:#7f909b}
+.dark-theme .search-card,.dark-theme .station-card,.dark-theme .board-panel{background:#1b252d;border-color:#2b3841;box-shadow:0 8px 25px #0003}
+.dark-theme .live-pill{background:#1c352f;color:#8dd5a5}
+.dark-theme .location-input,.dark-theme .destination-input{background:#151e25;border-color:#34414a;color:#a5b3bc}
+.dark-theme .location-input input,.dark-theme .destination-input input{color:#e6edf1}
+.dark-theme .go-button{background:#31566b;color:#f4f9fb}
+.dark-theme .planning-controls select{background:#31566b!important;color:#f4f9fb!important}
+.dark-theme .swap,.dark-theme .station-index{color:#80909a}
+.dark-theme .search-hint span:nth-child(2){color:#71808a}
+.dark-theme .search-hint button,.dark-theme .card-foot button{color:#ffad62}
+.dark-theme .section-controls select,.dark-theme .board-title select{background:#151e25;border-color:#34414a;color:#dce5ea}
+.dark-theme .mode-toggle{background:#151e25;border-color:#34414a}
+.dark-theme .mode-toggle button{color:#9ba9b2}
+.dark-theme .mode-toggle .selected{background:#34434d;color:#f2f5f7;box-shadow:none}
+.dark-theme .route-meta,.dark-theme .dep-min,.dark-theme .card-foot>span,.dark-theme .board-title span{color:#8796a0}
+.dark-theme .dep-time,.dark-theme .dep-dest{color:#ffad62}
+.dark-theme .board-deps,.dark-theme .board-deps span,.dark-theme .board-deps b,.dark-theme .board-deps strong{color:#ffad62}
+.dark-theme .dep-min.soon{color:#ffd18f}
+.dark-theme .departure,.dark-theme .card-foot,.dark-theme .board-row{border-color:#2c3942}
+.dark-theme .weather-card{background:#1c2a32}
+.dark-theme .weather-copy p,.dark-theme .coming,.dark-theme .forecast{color:#a2b0b7}
+.dark-theme .coming i{background:#8db4c8}
+.dark-theme .weather-temp,.dark-theme .forecast b{color:#e5edf1}
+.dark-theme .weather-caption{color:#94a4ac}
+.dark-theme .weather-divider{background:#3a4850}
+.dark-theme footer{color:#71818b}
+.dark-theme footer b{color:#ffad62}
+.dark-theme .journey-option{border-color:#34414a}
+.dark-theme .journey-option-head strong,.dark-theme .journey-leg strong{color:#ffad62}
+.dark-theme .journey-option-head span,.dark-theme .journey-leg span,.dark-theme .journey-empty,.dark-theme .journey-transfer{color:#a1afb7}
+.dark-theme .journey-leave{background:#283740;color:#e3edf2}
+.dark-theme .journey-leave span{color:#a9b8c0}
+.dark-theme .journey-leg .line-dot{color:#fff}
+.dark-theme .departure-notice{color:#ffc08a}
+@media(max-width:620px){.theme-toggle{width:30px;height:30px}}
