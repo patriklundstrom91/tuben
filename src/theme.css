@@ -1,4 +1,6 @@
 .theme-toggle{width:34px;height:34px;display:grid;place-items:center;border:1px solid #e2e5dd;border-radius:10px;background:#fff;color:#586259;cursor:pointer}
+.hero-art{display:flex;align-items:center;justify-content:center}
+.metro-illustration{display:block;width:100%;height:auto;overflow:visible;filter:drop-shadow(0 12px 18px #214b6514)}
 .planning-controls select{border-color:transparent!important;border-radius:10px!important;background:#253027!important;color:#f6f8ef!important;font-weight:600!important;cursor:pointer}
 .dark-theme{min-height:100vh;background:#111820;color:#e8edf1;color-scheme:dark;transition:background .2s,color .2s}
 .dark-theme .rail{background:#10171d}
@@ -19,6 +21,7 @@
 .dark-theme .art-pole,.dark-theme .art-base{background:#74838b}
 .dark-theme .art-sign{background:#24445a;color:#d8edf8}
 .dark-theme .art-label{color:#7f909b}
+.dark-theme .metro-illustration{filter:brightness(.82) saturate(.8) drop-shadow(0 12px 18px #0005)}
 .dark-theme .search-card,.dark-theme .station-card,.dark-theme .board-panel{background:#1b252d;border-color:#2b3841;box-shadow:0 8px 25px #0003}
 .dark-theme .live-pill{background:#1c352f;color:#8dd5a5}
 .dark-theme .location-input,.dark-theme .destination-input{background:#151e25;border-color:#34414a;color:#a5b3bc}
