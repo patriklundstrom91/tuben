@@ -43,10 +43,87 @@ function lineGroupLabel(line: any) {
   return '';
 }
 
+function tripPlaceName(place: any) {
+  return String(place?.parent?.name || place?.name || '').replace(/,\s*Stockholm$/i, '');
+}
+
+function tripLegTime(leg: any, kind: 'departure' | 'arrival') {
+  const place = kind === 'departure' ? leg?.origin || leg?.Origin : leg?.destination || leg?.Destination;
+  const prefix = kind === 'departure' ? 'departure' : 'arrival';
+  return place?.[`${prefix}TimeEstimated`] || place?.[`${prefix}TimePlanned`] || place?.[`${prefix}TimeBaseTimetable`]
+    || leg?.[`${prefix}TimeEstimated`] || leg?.[`${prefix}TimePlanned`] || '';
+}
+
+function formatTripTime(value: string) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function tripLegLine(leg: any) {
+  const transportation = leg?.transportation || leg?.Transportation;
+  const designation = transportation?.disassembledName || String(transportation?.number || '').match(/\d{1,2}/)?.[0] || '';
+  return { designation, name: transportation?.name || '', group_of_lines: transportation?.name || '' };
+}
+
+function isMetroLeg(leg: any) {
+  const transportation = leg?.transportation || leg?.Transportation;
+  return transportation?.product?.class === 2 || (leg?.productClasses || []).includes(2);
+}
+
+function JourneyPlanCard({ station, destination, journeys, loading, expanded, onToggle }: { station: any; destination: string; journeys: any[]; loading: boolean; expanded: boolean; onToggle: () => void }) {
+  const walkingMinutes = station.distance == null ? null : Math.max(1, Math.ceil(station.distance * 1000 * 1.25 / 75));
+  const plans = journeys.filter(journey => !journey.tripImpossible && (journey.legs || []).some(isMetroLeg));
+
+  return <article className="station-card journey-card">
+    <div className="station-top"><div className="station-label"><span className="station-index">T</span><div><h3>{station.name} → {destination}</h3><span className="walk"><MapPin size={12}/>{station.distance != null ? `${Math.round(station.distance * 1000)} m från dig` : 'Nära dig'}</span></div></div></div>
+    {!plans.length ? <p className="journey-empty">{loading ? 'Hämtar reseförslag från SL…' : 'Inga kommande reseförslag hittades från den här stationen.'}</p> : plans.slice(0, expanded ? 10 : 4).map((journey: any, index: number) => {
+      const legs = journey.legs || [];
+      const transitLegs = legs.filter(isMetroLeg);
+      const firstLeg = transitLegs[0];
+      const firstDeparture = tripLegTime(firstLeg, 'departure');
+      const leaveAt = firstDeparture && walkingMinutes != null
+        ? new Date(new Date(firstDeparture).getTime() - (walkingMinutes + 2) * 60_000)
+        : null;
+      const duration = journey.tripRtDuration || journey.tripDuration;
+      const transfers = Math.max(0, transitLegs.length - 1);
+
+      return <section className="journey-option" key={journey.properties?.tripId || index}>
+        <div className="journey-option-head"><strong>{firstDeparture ? `Tåget avgår ${formatTripTime(firstDeparture)}` : 'Reseförslag'}</strong><span>{duration ? `${Math.round(duration / 60)} min` : ''}{transfers ? ` · ${transfers} byte` : ' · Direkt'}</span></div>
+        {leaveAt && <p className="journey-leave">{leaveAt.getTime() <= Date.now() ? 'Gå mot stationen nu' : `Börja gå ca ${formatTripTime(leaveAt.toISOString())}`} <span>(grov promenaduppskattning: ca {walkingMinutes} min + 2 min marginal)</span></p>}
+        <div className="journey-itinerary">{transitLegs.map((leg: any, legIndex: number) => {
+          const line = tripLegLine(leg);
+          const transportation = leg.transportation || leg.Transportation;
+          const origin = leg.origin || leg.Origin;
+          const destination = leg.destination || leg.Destination;
+          const from = tripPlaceName(origin);
+          const to = tripPlaceName(destination);
+          const trainDirection = tripPlaceName(transportation?.destination) || to;
+          const platform = origin?.properties?.platformName || origin?.properties?.platform;
+          const previousLeg = transitLegs[legIndex - 1];
+          const transferSeconds = previousLeg?.footPathInfo?.[0]?.duration;
+          const arrival = tripLegTime(leg, 'arrival');
+          const departure = tripLegTime(leg, 'departure');
+          return <div key={`${line.designation}-${legIndex}`}>
+            {legIndex > 0 && <div className="journey-transfer"><ArrowDownUp size={14}/><span>Byte vid {from}{transferSeconds ? ` · cirka ${Math.max(1, Math.round(transferSeconds / 60))} min gång` : ''}{platform ? ` till spår ${platform}` : ''}</span></div>}
+            <div className="journey-leg"><span className="line-dot" style={{ backgroundColor: lineColor(line) }}>{line.designation || 'T'}</span><div><strong>Linje {line.designation || ''} mot {trainDirection}</strong><span>Avgår {formatTripTime(departure)} från {from}{platform ? `, spår ${platform}` : ''}</span><span>Kliv av {to}{arrival ? ` kl. ${formatTripTime(arrival)}` : ''}</span></div></div>
+          </div>;
+        })}</div>
+      </section>;
+    })}
+    {plans.length > 4 && <div className="card-foot journey-card-foot"><span>{expanded ? `Visar ${Math.min(plans.length, 10)} reseförslag` : `Visar 4 av ${Math.min(plans.length, 10)} reseförslag`}</span><button onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Visa färre reseförslag' : 'Visa fler reseförslag'} <ChevronDown className={expanded ? 'expanded' : ''} size={14}/></button></div>}
+  </article>;
+}
+
 function App() {
   const [mode, setMode] = useState<'smart' | 'board'>('smart');
   const [dest, setDest] = useState('');
   const [activeDestination, setActiveDestination] = useState('');
+  const [planningMode, setPlanningMode] = useState<'now' | 'departure' | 'arrival'>('now');
+  const [planningDateTime, setPlanningDateTime] = useState('');
+  const [searchPlanningMode, setSearchPlanningMode] = useState<'now' | 'departure' | 'arrival'>('now');
+  const [searchPlanningDateTime, setSearchPlanningDateTime] = useState('');
+  const [allJourneyPlansExpanded, setAllJourneyPlansExpanded] = useState(false);
   const [direction, setDirection] = useState('');
   const [location, setLocation] = useState('');
   const [resolvedLocation, setResolvedLocation] = useState('');
@@ -56,6 +133,7 @@ function App() {
   const [nearby, setNearby] = useState<any[]>([]);
   const [departures, setDepartures] = useState<Record<number, any[]>>({});
   const [stationLines, setStationLines] = useState<Record<number, any[]>>({});
+  const [tripPlans, setTripPlans] = useState<Record<number, any[]>>({});
   const [allDeparturesExpanded, setAllDeparturesExpanded] = useState(false);
   const [weather, setWeather] = useState<any>(null);
   const [error, setError] = useState('');
@@ -75,6 +153,7 @@ function App() {
     setNearby(stations);
     setDepartures({});
     setStationLines({});
+    setTripPlans({});
     setError(stations.length ? '' : 'Hittade inga tunnelbanestationer nära den här platsen.');
   }, []);
 
@@ -111,7 +190,7 @@ function App() {
 
   useEffect(() => { void locate(true, true); }, []); // Start with the browser's current position.
 
-  const refreshDepartures = useCallback(async (stations: any[], destination: string) => {
+  const refreshDepartures = useCallback(async (stations: any[], destination: string, refreshPlans = true) => {
     if (!stations.length) return;
     setRefreshing(true);
     try {
@@ -119,48 +198,48 @@ function App() {
         const boardPromise = api(`/api/stations/${station.id}/departures`)
           .then(async response => response.ok ? response.json() : [])
           .catch(() => []);
-        if (destination.trim()) {
-          const [response, stationBoard] = await Promise.all([
-            api(`/api/trips?lat=${station.lat}&lon=${station.lon}&originStation=${encodeURIComponent(station.name)}&destination=${encodeURIComponent(destination.trim())}`),
+        if (destination.trim() && refreshPlans) {
+          const [journeyResponse, stationBoard] = await Promise.all([
+            api(`/api/trips?lat=${station.lat}&lon=${station.lon}&originStation=${encodeURIComponent(station.name)}&destination=${encodeURIComponent(destination.trim())}${searchPlanningMode !== 'now' && searchPlanningDateTime ? `&date=${encodeURIComponent(searchPlanningDateTime.slice(0, 10))}&time=${encodeURIComponent(searchPlanningDateTime.slice(11, 16))}&timeMode=${searchPlanningMode}` : ''}`),
             boardPromise
           ]);
-          if (!response.ok) return { id: station.id, rows: [], lines: stationBoard };
-          const body = await response.json();
-          const journeys = body.journeys || body.Journeys || [];
-          const rows = journeys.map((journey: any) => {
-            const legs = journey.legs || journey.Legs || [];
-            // SL puts departureTimeEstimated on the leg itself. The first leg
-            // can be a walk, so prefer the metro leg when one is present.
-            const leg = legs.find((candidate: any) => (candidate.productClasses || candidate.ProductClasses || []).includes(2))
-              || legs.find((candidate: any) => candidate.departureTimeEstimated || candidate.departureTimePlanned || candidate.DepartureTimeEstimated || candidate.DepartureTimePlanned)
-              || legs[0];
-            const origin = leg?.origin || leg?.Origin;
-            const transportation = leg?.transportation || leg?.Transportation;
-            const transportationName = transportation?.name || transportation?.number || '';
-            const designation = String(transportation?.number || transportation?.id || '').match(/\d{1,2}\s*$/)?.[0]?.trim() || '';
-            const expected = leg?.departureTimeEstimated || leg?.departureTimePlanned || leg?.DepartureTimeEstimated || leg?.DepartureTimePlanned
-              || origin?.departureTimeEstimated || origin?.departureTimePlanned || origin?.DepartureTimeEstimated || origin?.DepartureTimePlanned;
-            const durationSeconds = journey.tripRtDuration || journey.tripDuration || journey.TripRtDuration || journey.TripDuration || 0;
-            return { direction: destination.trim(), destination: destination.trim(), expected, display: expected ? new Date(expected).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : '—', duration: durationSeconds ? Math.round(durationSeconds / 60) : undefined, line: { designation, name: transportationName, group_of_lines: transportationName } };
-          }).filter((row: any) => row.expected && new Date(row.expected).getTime() >= Date.now());
-          return { id: station.id, rows, lines: stationBoard };
+          let journeys: any[] = [];
+          if (journeyResponse.ok) {
+            const body = await journeyResponse.json();
+            journeys = (body.journeys || body.Journeys || []).filter((journey: any) => {
+              const firstTransitLeg = (journey.legs || journey.Legs || []).find(isMetroLeg);
+              const departure = tripLegTime(firstTransitLeg, 'departure');
+              return !journey.tripImpossible && departure && (searchPlanningMode !== 'now' || new Date(departure).getTime() >= Date.now());
+            });
+          }
+          return { id: station.id, rows: stationBoard, lines: stationBoard, journeys };
         }
         const stationBoard = await boardPromise;
-        return { id: station.id, rows: stationBoard, lines: stationBoard };
+        return { id: station.id, rows: stationBoard, lines: stationBoard, journeys: destination.trim() ? null : [] };
       }));
       setDepartures(Object.fromEntries(entries.map(entry => [entry.id, entry.rows])));
       setStationLines(Object.fromEntries(entries.map(entry => [entry.id, entry.lines])));
+      const planEntries = entries.filter(entry => entry.journeys !== null);
+      if (planEntries.length) setTripPlans(current => ({ ...current, ...Object.fromEntries(planEntries.map(entry => [entry.id, entry.journeys])) }));
       setLastUpdated(new Date());
     } catch {
       setError('Avgångarna kunde inte hämtas just nu. Försöker igen om en minut.');
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [searchPlanningMode, searchPlanningDateTime]);
 
   const submitSearch = async () => {
+    if (dest.trim() && planningMode !== 'now' && !planningDateTime) {
+      alert('Välj datum och tid för reseplaneringen.');
+      return;
+    }
+    setSearchPlanningMode(planningMode);
+    setSearchPlanningDateTime(planningMode === 'now' ? '' : planningDateTime);
+    setAllJourneyPlansExpanded(false);
     // Destination edits reuse the resolved origin coordinates instead of
     // sending the destination through the place geocoder.
+    if (activeDestination.trim() !== dest.trim()) setTripPlans({});
     if (originCoordinates && location.trim() === resolvedLocation.trim()) {
       setActiveDestination(dest.trim());
       if (nearby.length) {
@@ -182,9 +261,9 @@ function App() {
     let active = true;
     const update = () => { if (active) void refreshDepartures(nearby, activeDestination); };
     update();
-    const timer = window.setInterval(update, 60_000);
+    const timer = window.setInterval(() => { if (active) void refreshDepartures(nearby, activeDestination, searchPlanningMode === 'now'); }, 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [nearby, activeDestination, refreshDepartures]);
+  }, [nearby, activeDestination, searchPlanningMode, refreshDepartures]);
 
   const filteredDepartures = (station: any) => (departures[station.id] || []).filter((departure: any) => !direction || String(departure.direction || '').trim().toLocaleLowerCase('sv-SE') === direction.trim().toLocaleLowerCase('sv-SE'));
   const directionOptions = [...new Map(Object.values(departures)
@@ -199,10 +278,10 @@ function App() {
   }, [direction, directionOptions.join('|')]);
 
   return <div className="shell"><aside className="rail"><div className="brand-mark"><TrainFront size={22}/></div><div className="rail-spacer"/><button className="rail-btn active"><Navigation size={18}/></button><button className="rail-btn"><MapPin size={18}/></button><div className="rail-spacer"/><div className="avatar">A</div></aside><main className="main"><header className="topbar"><div className="wordmark"><span className="wordmark-icon"><TrainFront size={17}/></span>Kolla tuben<span className="wordmark-dot">.</span></div><div className="top-right"><span className="service"><i/>{refreshing ? 'Uppdaterar SL-data' : 'SL · Realtidsavgångar'}</span><button className="icon-button"><Menu size={18}/></button><div className="avatar small">A</div></div></header><div className="content"><div className="eyebrow"><span>DIN STAD, I RÖRELSE</span><span className="eyeline"/></div><section className="hero"><div><h1>Ut genom dörren.<br/><em>In i stan.</em></h1><p className="hero-copy">Avgångar från dina närmaste stationer, precis när du behöver dem.</p></div><div className="hero-art"><div className="sun-disc"/><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="art-station"><div className="art-pole"/><div className="art-sign">T</div><div className="art-base"/></div><div className="art-label">STOCKHOLM · 59°19′N</div></div></section>
-  <section className="search-card"><div className="card-top"><div><div className="section-kicker">01 <span>STARTA HÄR</span></div><h2>Vart är du på väg?</h2></div>{nearby.length ? <span className="live-pill"><i/>SL · LIVE</span> : <span className="live-pill">ANSLUTER TILL SL</span>}</div><div className="input-row"><label className="location-input"><MapPin size={17}/><input placeholder="Din position eller adress" value={location} onChange={e => setLocation(e.target.value)} aria-label="Din plats"/><button onClick={() => void locate(true)} title="Använd min plats"><LocateFixed size={17}/></button></label><div className="swap"><ArrowDownUp size={16}/></div><label className="destination-input"><Search size={17}/><input placeholder="Välj destination (valfritt)" value={dest} onChange={e => setDest(e.target.value)} aria-label="Destination"/><ChevronDown size={16}/></label><button className="go-button" onClick={submitSearch}>{loading ? 'Söker…' : 'Visa resan'}<ArrowUpRight size={17}/></button></div><div className="search-hint"><button className="location-action" onClick={() => void locate(true)}><LocateFixed size={13}/> Använd min position</button><span>ELLER</span><span>Skriv en plats eller adress</span><button onClick={() => void locate()}>Hitta stationer nära mig <ArrowRight size={14}/></button></div></section>
-  <div className="section-heading"><div><div className="section-kicker">02 <span>NÄRA DIG</span></div><h2>{activeDestination ? 'Bästa avgångarna till ' + activeDestination : 'Dina närmaste stationer'}</h2>{loading && <span className="station-loading" role="status"><TrainFront size={16}/> Söker närmaste stationer</span>}</div><div className="section-controls"><select aria-label="Välj riktning" value={direction} onChange={e => setDirection(e.target.value)}><option value="">Alla riktningar</option>{directionOptions.map(option => <option key={option} value={option}>Mot {option}</option>)}</select><div className="mode-toggle"><button className={mode === 'smart' ? 'selected' : ''} onClick={() => setMode('smart')}>Smart resa</button><button className={mode === 'board' ? 'selected' : ''} onClick={() => setMode('board')}>Avgångstavla</button></div></div></div>
+  <section className="search-card"><div className="card-top"><div><div className="section-kicker">01 <span>STARTA HÄR</span></div><h2>Vart är du på väg?</h2></div>{nearby.length ? <span className="live-pill"><i/>SL · LIVE</span> : <span className="live-pill">ANSLUTER TILL SL</span>}</div><div className="input-row"><label className="location-input"><MapPin size={17}/><input placeholder="Din position eller adress" value={location} onChange={e => setLocation(e.target.value)} aria-label="Din plats"/><button onClick={() => void locate(true)} title="Använd min plats"><LocateFixed size={17}/></button></label><div className="swap"><ArrowDownUp size={16}/></div><label className="destination-input"><Search size={17}/><input placeholder="Välj destination (valfritt)" value={dest} onChange={e => setDest(e.target.value)} aria-label="Destination"/><ChevronDown size={16}/></label><button className="go-button" onClick={submitSearch}>{loading ? 'Söker…' : 'Visa resan'}<ArrowUpRight size={17}/></button></div><div className="planning-controls"><label>Planera resa<select value={planningMode} onChange={e => setPlanningMode(e.target.value as 'now' | 'departure' | 'arrival')}><option value="now">Snarast</option><option value="departure">Avgångstid</option><option value="arrival">Ankomsttid</option></select></label>{planningMode !== 'now' && <label>Datum och tid<input type="datetime-local" value={planningDateTime} onChange={e => setPlanningDateTime(e.target.value)} aria-label="Datum och tid för resan"/></label>}<span>{planningMode === 'now' ? 'Sök efter närmaste möjliga avgång.' : planningMode === 'departure' ? 'Visa resor som avgår vid vald tid.' : 'Visa resor som anländer vid vald tid.'}</span></div><div className="search-hint"><button className="location-action" onClick={() => void locate(true)}><LocateFixed size={13}/> Använd min position</button><span>ELLER</span><span>Skriv en plats eller adress</span><button onClick={() => void locate()}>Hitta stationer nära mig <ArrowRight size={14}/></button></div></section>
+  <div className="section-heading"><div><div className="section-kicker">02 <span>NÄRA DIG</span></div><h2>{mode === 'smart' && activeDestination ? 'Bästa avgångarna till ' + activeDestination : 'Dina närmaste stationer'}</h2>{loading && <span className="station-loading" role="status"><TrainFront size={16}/> Söker närmaste stationer</span>}</div><div className="section-controls"><select aria-label="Välj riktning" value={direction} onChange={e => setDirection(e.target.value)}><option value="">Alla riktningar</option>{directionOptions.map(option => <option key={option} value={option}>Mot {option}</option>)}</select><div className="mode-toggle"><button className={mode === 'smart' ? 'selected' : ''} onClick={() => setMode('smart')}>Smart resa</button><button className={mode === 'board' ? 'selected' : ''} onClick={() => setMode('board')}>Avgångstavla</button></div></div></div>
   {error && <p className="departure-notice">{error}</p>}
-  {mode === 'smart' ? <div className="station-grid">{nearby.map((station: any, index: number) => {
+  {mode === 'smart' && activeDestination ? <div className="journey-grid">{nearby.map((station: any) => <JourneyPlanCard key={station.id} station={station} destination={activeDestination} journeys={tripPlans[station.id] || []} loading={refreshing} expanded={allJourneyPlansExpanded} onToggle={() => setAllJourneyPlansExpanded(value => !value)} />)}</div> : mode === 'smart' ? <div className="station-grid">{nearby.map((station: any, index: number) => {
     const live = filteredDepartures(station);
     const stationLineList = [...new Map((stationLines[station.id] || []).filter((departure: any) => departure.line).map((departure: any) => [lineNumber(departure.line), departure.line])).values()]
       .sort((a: any, b: any) => Number(lineNumber(a)) - Number(lineNumber(b)));
