@@ -4,7 +4,38 @@ import './theme.css';
 import MetroIllustration from './MetroIllustration';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const api = (path: string) => fetch(`${API_BASE}${path}`);
+const API_ATTEMPTS = 3;
+const API_TIMEOUT_MS = 30_000;
+const retryDelays = [1_000, 3_000];
+const api = async (path: string, onRetry?: () => void) => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= API_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    let response: Response | undefined;
+    try {
+      response = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+    } catch (cause) {
+      lastError = cause;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+
+    const retryableStatus = response && (response.status === 408 || response.status === 429 || response.status >= 500);
+    if (response && (!retryableStatus || attempt === API_ATTEMPTS)) return response;
+    if (attempt < API_ATTEMPTS) {
+      onRetry?.();
+      await new Promise(resolve => window.setTimeout(resolve, retryDelays[attempt - 1]));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Servern svarade inte efter flera försök.');
+};
+
+function connectionErrorMessage(cause: unknown, fallback: string) {
+  if (cause instanceof TypeError || (cause instanceof DOMException && cause.name === 'AbortError'))
+    return 'Fick inget svar från servern efter tre försök. Kontrollera anslutningen och försök igen.';
+  return cause instanceof Error ? cause.message : fallback;
+}
 
 function isWeatherForecast(value: any) {
   return value && value.source === 'SMHI' && typeof value.forecastUpdatedAt === 'string' && Number.isFinite(value.current?.temperatureC) && typeof value.current?.condition === 'string' && Array.isArray(value.nextHours);
@@ -135,6 +166,7 @@ function App() {
   const [resolvedLocation, setResolvedLocation] = useState('');
   const [originCoordinates, setOriginCoordinates] = useState<{ lat: number; lon: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [nearby, setNearby] = useState<any[]>([]);
   const [departures, setDepartures] = useState<Record<number, any[]>>({});
@@ -151,13 +183,15 @@ function App() {
 
   const searchNearby = useCallback(async (lat: number, lon: number) => {
     const [weatherResult, stationResult] = await Promise.all([
-      api(`/api/weather?lat=${lat}&lon=${lon}`).catch(() => null),
-      api(`/api/stations/nearby?lat=${lat}&lon=${lon}&limit=2`)
+      api(`/api/weather?lat=${lat}&lon=${lon}`, () => setRetrying(true)).catch(() => null),
+      api(`/api/stations/nearby?lat=${lat}&lon=${lon}&limit=2`, () => setRetrying(true)).catch(() => null)
     ]);
+    setRetrying(false);
     if (weatherResult?.ok) {
       const forecast = await weatherResult.json();
       setWeather(isWeatherForecast(forecast) ? forecast : null);
     } else setWeather(null);
+    if (!stationResult) throw new Error('Fick inget svar från servern efter tre försök. Kontrollera anslutningen och försök igen.');
     if (!stationResult.ok) throw new Error('Kunde inte hämta närmaste stationer från SL.');
     const stations = await stationResult.json();
     setNearby(stations);
@@ -180,7 +214,7 @@ function App() {
         await searchNearby(position.coords.latitude, position.coords.longitude);
       } else {
         if (!location.trim()) throw new Error('Skriv in en plats eller adress.');
-        const response = await api(`/api/geocode?q=${encodeURIComponent(location)}`);
+        const response = await api(`/api/geocode?q=${encodeURIComponent(location)}`, () => setRetrying(true));
         if (!response.ok) throw new Error('Platsen hittades inte. Prova en adress eller ett stationsnamn.');
         const place = await response.json();
         const placeLabel = place.name?.split(',').slice(0, 2).join(',') || location;
@@ -190,11 +224,12 @@ function App() {
         await searchNearby(place.lat, place.lon);
       }
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Det gick inte att hämta stationer.';
+      const message = connectionErrorMessage(cause, 'Det gick inte att hämta stationer.');
       setError(message);
       if (!silent) alert(message);
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   }, [location, searchNearby]);
 
@@ -257,8 +292,8 @@ function App() {
       } else {
         setLoading(true);
         try { await searchNearby(originCoordinates.lat, originCoordinates.lon); }
-        catch (cause) { setError(cause instanceof Error ? cause.message : 'Stationerna kunde inte hämtas.'); }
-        finally { setLoading(false); }
+        catch (cause) { setError(connectionErrorMessage(cause, 'Stationerna kunde inte hämtas.')); }
+        finally { setLoading(false); setRetrying(false); }
       }
       return;
     }
@@ -296,7 +331,7 @@ function App() {
 
   return <div className={`shell${darkTheme ? ' dark-theme' : ''}`}><aside className="rail"><div className="brand-mark"><TrainFront size={22}/></div><div className="rail-spacer"/><button className="rail-btn active"><Navigation size={18}/></button><button className="rail-btn"><MapPin size={18}/></button><div className="rail-spacer"/></aside><main className="main"><header className="topbar"><div className="wordmark"><span className="wordmark-icon"><TrainFront size={17}/></span>Kolla tuben<span className="wordmark-dot">.</span></div><div className="top-right"><span className="service"><i/>{refreshing ? 'Uppdaterar SL-data' : 'SL · Realtidsavgångar'}</span><button className="theme-toggle" onClick={() => setDarkTheme(value => !value)} aria-label={darkTheme ? 'Byt till ljust läge' : 'Byt till mörkt läge'} title={darkTheme ? 'Ljust läge' : 'Mörkt läge'}>{darkTheme ? <Sun size={17}/> : <Moon size={17}/>}</button></div></header><div className="content"><div className="eyebrow"><span>DIN STAD, I RÖRELSE</span><span className="eyeline"/></div><section className="hero"><div><h1>Ut genom dörren.<br/><em>In i stan.</em></h1><p className="hero-copy">Avgångar från dina närmaste stationer, precis när du behöver dem.</p></div><div className="hero-art"><MetroIllustration/></div></section>
   <section className="search-card"><div className="card-top"><div><div className="section-kicker">01 <span>STARTA HÄR</span></div><h2>Vart är du på väg?</h2></div>{nearby.length ? <span className="live-pill"><i/>SL · LIVE</span> : <span className="live-pill">ANSLUTER TILL SL</span>}</div><div className="input-row"><label className="location-input"><MapPin size={17}/><input placeholder="Din position eller adress" value={location} onChange={e => setLocation(e.target.value)} aria-label="Din plats"/><button onClick={() => void locate(true)} title="Använd min plats"><LocateFixed size={17}/></button></label><div className="swap"><ArrowDownUp size={16}/></div><label className="destination-input"><Search size={17}/><input placeholder="Välj destination (valfritt)" value={dest} onChange={e => setDest(e.target.value)} aria-label="Destination"/>{dest && <button type="button" onClick={() => { setDest(''); setActiveDestination(''); setTripPlans({}); }} title="Rensa destination" aria-label="Rensa destination"><X size={16}/></button>}</label><button className="go-button" onClick={submitSearch}>{loading ? 'Söker…' : 'Visa resan'}<ArrowUpRight size={17}/></button></div><div className="planning-controls"><label>Planera resa<select value={planningMode} onChange={e => setPlanningMode(e.target.value as 'now' | 'departure' | 'arrival')}><option value="now">Snarast</option><option value="departure">Avgångstid</option><option value="arrival">Ankomsttid</option></select></label>{planningMode !== 'now' && <label>Datum och tid<input type="datetime-local" value={planningDateTime} onChange={e => setPlanningDateTime(e.target.value)} aria-label="Datum och tid för resan"/></label>}<span>{planningMode === 'now' ? 'Sök efter närmaste möjliga avgång.' : planningMode === 'departure' ? 'Visa resor som avgår vid vald tid.' : 'Visa resor som anländer vid vald tid.'}</span></div><div className="search-hint"><button className="location-action" onClick={() => void locate(true)}><LocateFixed size={13}/> Använd min position</button><span>ELLER</span><span>Skriv en plats eller adress</span><button onClick={() => void locate()}>Hitta stationer nära mig <ArrowRight size={14}/></button></div></section>
-  <div className="section-heading"><div><div className="section-kicker">02 <span>NÄRA DIG</span></div><h2>{mode === 'smart' && activeDestination ? 'Bästa avgångarna till ' + (resolvedTripDestination || activeDestination) : 'Dina närmaste stationer'}</h2>{loading && <span className="station-loading" role="status"><TrainFront size={16}/> Söker närmaste stationer</span>}</div><div className="section-controls"><select aria-label="Välj riktning" value={direction} onChange={e => setDirection(e.target.value)}><option value="">Alla riktningar</option>{directionOptions.map(option => <option key={option} value={option}>Mot {option}</option>)}</select><div className="mode-toggle"><button className={mode === 'smart' ? 'selected' : ''} onClick={() => setMode('smart')}>Smart resa</button><button className={mode === 'board' ? 'selected' : ''} onClick={() => setMode('board')}>Avgångstavla</button></div></div></div>
+  <div className="section-heading"><div><div className="section-kicker">02 <span>NÄRA DIG</span></div><h2>{mode === 'smart' && activeDestination ? 'Bästa avgångarna till ' + (resolvedTripDestination || activeDestination) : 'Dina närmaste stationer'}</h2>{loading && <span className="station-loading" role="status"><TrainFront size={16}/> {retrying ? 'Servern svarar inte än – försöker igen…' : 'Söker närmaste stationer'}</span>}</div><div className="section-controls"><select aria-label="Välj riktning" value={direction} onChange={e => setDirection(e.target.value)}><option value="">Alla riktningar</option>{directionOptions.map(option => <option key={option} value={option}>Mot {option}</option>)}</select><div className="mode-toggle"><button className={mode === 'smart' ? 'selected' : ''} onClick={() => setMode('smart')}>Smart resa</button><button className={mode === 'board' ? 'selected' : ''} onClick={() => setMode('board')}>Avgångstavla</button></div></div></div>
   {error && <p className="departure-notice">{error}</p>}
   {mode === 'smart' && activeDestination ? <div className="journey-grid">{nearby.map((station: any) => <JourneyPlanCard key={station.id} station={station} destination={activeDestination} journeys={tripPlans[station.id] || []} loading={refreshing} expanded={allJourneyPlansExpanded} onToggle={() => setAllJourneyPlansExpanded(value => !value)} />)}</div> : mode === 'smart' ? <div className="station-grid">{nearby.map((station: any, index: number) => {
     const live = filteredDepartures(station);
